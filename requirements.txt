@@ -1,0 +1,25 @@
+# Capture: webcam + hand/pose landmark extraction
+mediapipe
+opencv-python
+
+# Core numerics + model
+numpy
+torch
+
+# Translation: gloss -> sentence via a pretrained model (falls back to offline
+# rules when ANTHROPIC_API_KEY is unset)
+anthropic
+
+# TTS: the Windows speech engines (OneCore via WinRT, SAPI5 via COM), driven with SSML
+# prosody. Offline, no key. Chosen because they were measured to honor rate and
+# per-word pitch/volume; see src/tts/prosody.py.
+winrt-runtime; sys_platform == "win32"
+winrt-Windows.Media.SpeechSynthesis; sys_platform == "win32"
+winrt-Windows.Storage.Streams; sys_platform == "win32"
+winrt-Windows.Foundation; sys_platform == "win32"
+winrt-Windows.Foundation.Collections; sys_platform == "win32"
+comtypes; sys_platform == "win32"
+sounddevice
+
+# Demo UI (demo/app.py)
+flask

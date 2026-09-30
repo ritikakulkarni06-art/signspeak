@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SignSpeak</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232dd4bf'/%3E%3Cpath d='M9 20c3 3 11 3 14 0M11 12h.01M21 12h.01' stroke='%230e1014' stroke-width='3' stroke-linecap='round' fill='none'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true"></span>
+      <div>
+        <h1>SignSpeak</h1>
+        <p>Sign language to speech, live</p>
+      </div>
+    </div>
+    <div class="meta">
+      <span class="tag" id="mode">Webcam</span>
+      <span class="tag" id="fps">— fps</span>
+      <span class="status" id="status" data-state="starting">
+        <span class="dot"></span><span id="status-text">Warming up</span>
+      </span>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="card stage" aria-label="Camera">
+      <div class="video-wrap">
+        <img id="video" alt="Webcam feed with hand, body and face landmarks">
+        <div class="video-overlay" id="video-overlay">
+          <div class="spinner" id="spinner"></div>
+          <p id="overlay-text">Warming up the models…</p>
+        </div>
+        <span class="signing-badge" id="signing-badge">Signing</span>
+      </div>
+      <div class="signs-row">
+        <h2>Signs</h2>
+        <div class="glosses" id="glosses">
+          <p class="placeholder">Sign in front of the camera.</p>
+        </div>
+      </div>
+      <ul class="legend" aria-label="Overlay colours">
+        <li><i style="--c:#50dc50"></i>Left hand</li>
+        <li><i style="--c:#28a0ff"></i>Right hand</li>
+        <li><i style="--c:#d2d2d2"></i>Body</li>
+        <li><i style="--c:#ffd700"></i>Eyebrows</li>
+        <li><i style="--c:#ff50c8"></i>Lips</li>
+      </ul>
+    </section>
+
+    <aside class="side">
+      <section class="card sentence-card">
+        <h2>Sentence <span class="speaking" id="speaking" aria-hidden="true"><i></i><i></i><i></i></span></h2>
+        <p class="sentence" id="sentence">—</p>
+      </section>
+
+      <section class="card latency-card">
+        <h2>Latency <span class="hint">end of sign → voice</span></h2>
+        <div class="latency">
+          <span class="value" id="latency-value">—</span><span class="unit">ms</span>
+          <span class="note" id="latency-note"></span>
+        </div>
+        <div class="target">
+          <div class="target-track"><div class="target-fill" id="target-fill"></div><div class="target-mark"></div></div>
+          <span>target 1.5 s</span>
+        </div>
+        <div class="breakdown" id="breakdown" aria-hidden="true"></div>
+        <ul class="breakdown-legend" id="breakdown-legend"></ul>
+        <p class="session" id="session">No sentences yet</p>
+      </section>
+    </aside>
+
+    <section class="card history-card">
+      <div class="history-head">
+        <h2>Conversation</h2>
+        <button id="clear" type="button">Clear</button>
+      </div>
+      <ol class="history" id="history">
+        <li class="placeholder">Spoken sentences will appear here.</li>
+      </ol>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <details>
+      <summary>Signs it knows <span id="vocab-count"></span></summary>
+      <div class="vocab" id="vocab"></div>
+    </details>
+    <p class="fine" id="engine-info"></p>
+  </footer>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

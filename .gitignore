@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Environment
+.venv/
+venv/
+.env
+
+# Data and model artifacts (keep folder structure via .gitkeep)
+data/raw/*
+data/processed/*
+models/*
+!**/.gitkeep
+
+# Generated audio and run logs
+demo/tts_samples/
+logs/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
