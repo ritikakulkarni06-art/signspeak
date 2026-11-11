@@ -87,6 +87,39 @@ h1, h2, p { margin: 0; }
 
 @keyframes pulse { 50% { opacity: 0.3; } }
 
+/* ---------- source: live input or a recorded demo clip */
+
+.source-controls { display: flex; align-items: center; gap: 8px; }
+.source-controls[hidden], .source-controls [hidden] { display: none; }
+
+select {
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 5px 8px;
+  max-width: 230px;
+}
+
+button.primary { color: #042f2a; background: var(--accent); border-color: var(--accent); font-weight: 600; }
+button.primary:hover { color: #042f2a; filter: brightness(1.08); }
+
+.tag.demo { color: var(--ok); border-color: rgb(251 191 36 / 0.5); font-weight: 600; }
+
+.source-badge {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 650;
+  color: #2b1d00;
+  background: var(--ok);
+}
+
 /* ---------- layout */
 
 .layout {

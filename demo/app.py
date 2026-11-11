@@ -3,6 +3,13 @@
 Run from the project root:
     python -m demo.app                                                   # webcam
     python -m demo.app --source data/raw/replay/utterances.mp4 --loop    # backup: replayed real signing
+    python -m demo.app --source demo                                     # Demo Clip mode, no webcam needed
+
+Demo Clip mode (the "Run demo clip" control on the page, at any time) plays a
+recorded ASL Citizen test clip from demo/clips/ in place of the webcam. Only
+the frame source changes: the clip goes through the same tracking, overlay,
+recognition, translation and speech as live input, and the page says "Demo
+Clip" while it is on. Fetch the clips with `python -m demo.build_demo_clips`.
 
 It opens http://127.0.0.1:8000. Speech plays on this computer's speakers,
 through the same low-latency path the latency numbers were measured on.
@@ -12,6 +19,7 @@ The server runs the pipeline on a background thread and serves:
     /video       webcam feed with the landmark overlay (MJPEG)
     /events      signs, sentences and latency as they happen (Server-Sent Events)
     /api/state   the current state as JSON (health check)
+    /api/source  POST {"mode": "live"} or {"mode": "demo", "clip": "<file>"}
 """
 
 from __future__ import annotations
@@ -29,13 +37,16 @@ from collections import deque
 from pathlib import Path
 
 import cv2
-from flask import Flask, Response, jsonify
+from flask import Flask, Response, jsonify, request
 
 from src.capture import draw_landmarks
 from src.pipeline.live import Pipeline, PipelineConfig, PipelineListener
+from src.pipeline.sources import SwitchableSource, first_frame, open_source
 from src.pipeline.trace import now_ms
 
 STATIC = Path(__file__).resolve().parent / "static"
+CLIPS = Path(__file__).resolve().parent / "clips"
+DEMO_LABEL = "Demo Clip"
 HISTORY = 8  # sentences kept on screen
 # The browser decoding the stream shares this laptop's CPU with the tracker
 # (measured: a full page in software-rendered Edge cut the capture loop from
@@ -52,8 +63,10 @@ class DemoState(PipelineListener):
     block the pipeline: each tab has a bounded queue and events are dropped for it
     rather than waited on."""
 
-    def __init__(self, mode: str):
+    def __init__(self, mode: str, live_mode: str | None = None, clips: list[dict] | None = None):
         self._lock = threading.Lock()
+        self.live_mode = live_mode or mode  # what live input is called: "Webcam" or "Replay"
+        self._mirror = mode != DEMO_LABEL  # live input is shown like a mirror; a recording of someone else is not
         self._subscribers: list[queue.Queue] = []
         self._frame_ready = threading.Condition()
         self._frame = None
@@ -66,6 +79,9 @@ class DemoState(PipelineListener):
             "status": "starting",
             "message": "Warming up the models…",
             "mode": mode,
+            "live_mode": self.live_mode,
+            "source": {"mode": "demo" if mode == DEMO_LABEL else "live", "clip": None, "playing": False},
+            "clips": clips or [],
             "translator": "",
             "voice": "",
             "labels": [],
@@ -110,6 +126,20 @@ class DemoState(PipelineListener):
         with self._lock:
             self.snapshot.update(status="error", message=message)
         self.publish({"type": "status", "status": "error", "message": message})
+
+    def on_source(self, info: dict) -> None:
+        """The frame source switched (SwitchableSource.on_change)."""
+        demo = info["mode"] == "demo"
+        mode = DEMO_LABEL if demo else self.live_mode
+        source = {key: info[key] for key in ("mode", "clip", "playing")}
+        self._mirror = not demo
+        clip = info.get("clip") or {}
+        log.info("source: %s%s%s", mode, f" {clip.get('file')}" if clip else "", " playing" if info.get("playing") else "")
+        with self._lock:
+            self.snapshot.update(mode=mode, source=source)
+        self.publish({"type": "source", "mode": mode, "source": source})
+        if info.get("notice"):
+            self.publish({"type": "notice", "message": info["notice"]})
 
     def stopped(self, message: str) -> None:
         with self._lock:
@@ -210,10 +240,13 @@ class DemoState(PipelineListener):
             if frame is None:
                 continue
             started = time.perf_counter()
-            view = cv2.flip(frame, 1)
+            mirror = self._mirror
+            view = cv2.flip(frame, 1) if mirror else frame
             if view.shape[1] > width:
                 view = cv2.resize(view, (width, round(view.shape[0] * width / view.shape[1])), interpolation=cv2.INTER_AREA)
-            draw_landmarks(view, landmarks, mirror=True)
+            elif not mirror:
+                view = view.copy()  # drawing must not touch the pipeline's frame
+            draw_landmarks(view, landmarks, mirror=mirror)
             ok, jpeg = cv2.imencode(".jpg", view, [cv2.IMWRITE_JPEG_QUALITY, 80])
             if ok:
                 data = jpeg.tobytes()
@@ -221,7 +254,7 @@ class DemoState(PipelineListener):
             time.sleep(max(0.0, 1.0 / max_fps - (time.perf_counter() - started)))
 
 
-def create_app(state: DemoState) -> Flask:
+def create_app(state: DemoState, source: SwitchableSource | None = None, clips_dir: Path = CLIPS) -> Flask:
     app = Flask(__name__, static_folder=str(STATIC), static_url_path="/static")
 
     @app.get("/")
@@ -260,6 +293,22 @@ def create_app(state: DemoState) -> Flask:
         state.clear()
         return jsonify(ok=True)
 
+    @app.post("/api/source")
+    def api_source():
+        if source is None:
+            return jsonify(ok=False, error="this session can't switch sources"), 409
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict):
+            return jsonify(ok=False, error="expected a JSON object"), 400
+        if body.get("mode") == "live":
+            source.use_live()
+            return jsonify(ok=True)
+        clip = next((c for c in state.state()["clips"] if c["file"] == body.get("clip")), None)
+        if body.get("mode") != "demo" or clip is None:  # only listed clips: never a path from the request
+            return jsonify(ok=False, error="unknown clip"), 400
+        source.play_clip(clips_dir / clip["file"], clip)
+        return jsonify(ok=True)
+
     return app
 
 
@@ -267,11 +316,26 @@ def _sse(event: dict) -> str:
     return f"data: {json.dumps(event)}\n\n"
 
 
+def load_clips(clips_dir: Path = CLIPS) -> list[dict]:
+    """The demo clips listed in clips.json whose video is present."""
+    manifest = clips_dir / "clips.json"
+    if not manifest.is_file():
+        return []
+    clips = json.loads(manifest.read_text(encoding="utf-8"))["clips"]
+    return [
+        {key: clip[key] for key in ("file", "label", "signer")}
+        for clip in clips
+        if (clips_dir / clip["file"]).is_file()
+    ]
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--source", default="0", help="webcam index, or a video file (backup demo)")
+    parser.add_argument("--source", default="0",
+                        help="webcam index, a video file (backup demo), or 'demo' to start in Demo Clip mode")  # fmt: skip
     parser.add_argument("--loop", action="store_true", help="loop a video source")
-    parser.add_argument("--translator", choices=["auto", "claude", "rules"], default="auto")
+    parser.add_argument("--translator", choices=["rules", "claude", "auto"], default=PipelineConfig.translator,
+                        help="rules: offline grammar (default). claude: the API. auto: the API if a key is set")  # fmt: skip
     parser.add_argument("--voice", help="part of a voice name, e.g. Mark or Zira")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
@@ -280,17 +344,31 @@ def main(argv: list[str] | None = None) -> None:
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(threadName)-9s %(message)s", datefmt="%H:%M:%S")
     logging.getLogger("werkzeug").setLevel(logging.WARNING)
-    state = DemoState("Webcam" if args.source.isdigit() else "Replay")
+    clips = load_clips()
+    start_demo = args.source == "demo"
+    if start_demo and not clips:
+        parser.error("no demo clips in demo/clips/; fetch them with: python -m demo.build_demo_clips")
+    live_spec = "0" if start_demo else args.source
+    live_mode = "Webcam" if live_spec.isdigit() else "Replay"
+    state = DemoState(DEMO_LABEL if start_demo else live_mode, live_mode, clips)
+    source = SwitchableSource(
+        lambda: open_source(live_spec, loop=args.loop),
+        live_label=live_mode,
+        on_change=state.on_source,
+        start_live=not start_demo,
+        idle_frame=first_frame(CLIPS / clips[0]["file"]) if clips else None,
+    )
     pipeline = Pipeline(
-        PipelineConfig(source=args.source, loop_source=args.loop, show_window=False,
+        PipelineConfig(source=live_spec, loop_source=args.loop, show_window=False,
                        translator=args.translator, voice=args.voice),  # fmt: skip
         state,
+        source,
     )
 
     def run_pipeline() -> None:
         try:
             print(pipeline.run(), flush=True)
-            state.stopped("The video source ended. Restart the demo to continue.")
+            state.stopped("The pipeline stopped. Restart the demo to continue.")
         except Exception as error:  # noqa: BLE001 - shown on the page
             log.exception("pipeline stopped")
             if state.state()["status"] != "error":
@@ -303,7 +381,7 @@ def main(argv: list[str] | None = None) -> None:
     if not args.no_browser:
         threading.Timer(1.0, webbrowser.open, (url,)).start()
     try:
-        create_app(state).run(host=args.host, port=args.port, threaded=True, use_reloader=False)
+        create_app(state, source).run(host=args.host, port=args.port, threaded=True, use_reloader=False)
     finally:
         pipeline.stop()
         worker.join(timeout=15)

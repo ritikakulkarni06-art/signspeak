@@ -13,8 +13,8 @@ This prototype handles a narrow slice of one of them, and it is not a substitute
 | Recognition, held-out signers (dataset test split) | **74.1%** top-1, 93.6% top-5 |
 | Full demo flow, 10 scripted sentences (26 signs) | **58–65%** of signs recognized and spoken correctly; **3 of 10** sentences fully right |
 | Latency, end of sign → voice starts (full demo flow) | median **697–810 ms**; all 27 sentences under 1.5 s |
-| Pre-demo audit, 5 single signs through the demo app | **3 of 5** spoken (2 correct); **2 of 5 never detected**; latency 654 / 768 / 825 ms |
-| Frame rate on the real webcam (this laptop) | **6–10 fps**, below the ~10 fps segmentation needs (replays ran at 9.5–15) |
+| Pre-demo audit, 5 single signs through the demo app, run twice | **2–3 of 5** spoken, **1–2 correct**; which signs fail changes between runs; latency 654–904 ms |
+| Frame rate on the real webcam (this laptop) | **6–10 fps**, and it swings with whatever else the machine is doing (replays ran at 7–15) |
 | Crashes in the final 10-trial runs | **0** (three bugs found and fixed during testing, below) |
 
 ## 1. Small vocabulary, not a full sign language
@@ -61,10 +61,11 @@ A sign is taken to start when the hands move fast enough and to end after a shor
   segment. Natural fluent signing often has no pause between signs.
 - **Signs are missed at low frame rates.** Offline on the same 26 test signs: 25 of 26 found at 15 fps and
   26 at 10 fps, but only 21 at 7.5 fps. In the live demo flow it found 21–23 of 26 at 9.5–13.8 fps.
-- **Short signs with little movement are missed.** In the pre-demo audit, *where* (a small finger wag) and
-  *four* (a held handshape), each about 0.7 s long, were never detected live, although offline replay at a
-  steady 15 fps found both. Detection of short signs is not repeatable near 10 fps: the same *deaf* clip was
-  missed once in 4 runs, on the run that ran at 10.5 fps.
+- **Short signs are detected unreliably, and it is a coin flip, not a threshold.** *where* and *four*, each
+  about 0.7 s long, show hands in only 3–8 frames. Fed evenly, the segmenter finds all five audit signs at
+  8, 10, 12 and 15 fps. Live, on the same clips, *four* was missed at 11.9 fps in one run and found in
+  another, and *where* was missed once and found once. Which frames the loop happens to sample decides it,
+  so a sign held for under a second may or may not register.
 - **Sentences split when the hands drop mid-sentence.** Lowering the hands ends the sentence. Only 4–6 of
   10 test sentences were spoken whole. That is partly an artifact of the test videos (clips of different
   people stitched together), but real signers do rest their hands too.
@@ -88,8 +89,13 @@ A sign is taken to start when the hands move fast enough and to end after a shor
 ## 6. Translation (gloss → English)
 
 - **The language-model path is untested.** It is built (Claude, few-shot prompted), but our API key was
-  invalid for the whole project, so **every sentence in every test came from the offline rule-based
-  grammar**.
+  rejected for the whole project, so **every sentence in every test came from the offline rule-based
+  grammar**. The key is refused by the server itself, not misread by our code: a request with no key gets a
+  different error, and our key gets exactly what an invented key of the same shape gets.
+- **The API would cost at least 300 ms per sentence.** An empty round trip to the API, rejected at
+  authentication with nothing generated, measured 311 ms on our network (plus a 456 ms TLS handshake on the
+  first call). Generation time is on top of that and we have never measured it. Against a measured pipeline
+  median of about 750 ms, the API path would leave little of the 1.5 s budget.
 - **The offline rules are telegraphic outside their templates:** *"I discuss."*, *"Language."*,
   *"Two examples are important."*, *"Who help need?"*, *"I finish time."*, *"It's deaf."* (where *"I'm
   deaf"* is the likely meaning). When a sequence doesn't fit a template, it is spoken exactly as signed,
@@ -97,8 +103,9 @@ A sign is taken to start when the hands move fast enough and to end after a shor
 - **Some sentences are fixed phrases.** The rules include 9 whole-sentence phrases (e.g. UNDERSTAND NO →
   *"I don't understand."*). Two of our 10 test sentences are among them, so the trial translations look
   better than the grammar does on new combinations.
-- **An invalid API key slows startup.** With a key set, the demo first tries the API; our invalid key cost
-  about 10 s of warm-up before falling back. Use `--translator rules` (or unset the key) for the demo.
+- **The offline rules are now the default**, so the demo needs no key and no network. Choosing the API with
+  `--translator claude` costs about 4 s of startup (10 s on a loaded machine) before the first frame, which
+  is why it is opt-in.
 - **The face isn't used for grammar.** In ASL, raised eyebrows can turn a statement into a yes/no question.
   We track the face and use expression intensity for vocal emphasis, but translation ignores it.
 
@@ -114,8 +121,19 @@ A sign is taken to start when the hands move fast enough and to end after a shor
 - **CPU only** (tested on a 2-core i7-7660U laptop). Body, hand and face tracking takes 45–90 ms per frame on
   replayed clips and 96–106 ms on the real webcam with a person in view.
 - **The real webcam runs slower than our replay tests.** The camera delivers 27 fps, but the loop managed
-  8.3 fps without the page, 6.3 fps with it open, and 9.8 fps with the camera set to 640×480, versus
-  9.5–15 fps on replays. Our accuracy numbers come from replays, so live accuracy is likely lower.
+  8.3 fps at the old 1280×720 capture and 6.3 fps with the page open, versus 9.5–15 fps on replays. Our
+  accuracy numbers come from replays, so live accuracy is likely lower. The camera now opens at 640×480,
+  which removes a decode and a 10 ms resize per frame and gained 1.9 fps measured back to back.
+- **Tracking cost is the model, not wasted work.** Per frame at best: 78 ms for the bundled holistic model,
+  against 106 ms for running pose, hands and face as three separate models, so the bundle is already the
+  cheaper path. Input resolution barely changes it (187 ms at 320×240 vs 234 ms at 1280×720 under load,
+  because the models resize internally), no GPU delegate is available in this MediaPipe build, and it
+  already uses about 1.5 of this laptop's 2 physical cores. Dropping face tracking would save roughly a
+  quarter of the cost but would remove the non-manual markers that drive emphasis.
+- **Other programs decide the frame rate.** With OneDrive syncing and browsers open (CPU at 100%), per-frame
+  tracking rose from 78 ms to 130–220 ms. Across five identical single-sign runs the loop varied between
+  7.0 and 13.9 fps purely from background load. Close other programs before demoing; this project folder
+  is inside OneDrive, so its sync is itself a competitor.
 - **The demo page competes with tracking.** With the dashboard open in a software-rendered browser, the loop
   fell from 13.8 to 9.5 fps, and accuracy fell with it (65% → 58% of signs). A normal browser with GPU
   acceleration, or viewing the page from a second device (`python -m demo.app --host 0.0.0.0`), should help,
@@ -137,6 +155,10 @@ A sign is taken to start when the hands move fast enough and to end after a shor
   spoken as "I learn." in 726 ms), which proves the path works but says nothing about accuracy.
 - **No Deaf users yet.** SignSpeak has **not been tested with Deaf signers or with the Deaf community**.
   That is the most important next step, and it should come before any claims of usefulness.
+- **Demo Clip mode shows best cases.** The demo app's recorded clips were chosen because they work: high
+  accuracy signs, high-confidence clips, each checked to come out right at 4–15 fps. They run through the
+  real models, but their success rate says nothing about typical accuracy (74.1% on unseen signers, lower
+  live), and they are single isolated signs.
 - **Small samples:** 10 scripted sentences, and benchmark runs of 11–15 sentences per configuration.
 
 ## 10. Privacy

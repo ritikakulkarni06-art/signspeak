@@ -1,0 +1,169 @@
+{
+  "source": "ASL Citizen test split (signers not seen in training): data/raw/asl_citizen/splits/test.csv",
+  "license": "Microsoft Research License: non-commercial research only; videos are not redistributed (gitignored). Fetch with: python -m demo.build_demo_clips",
+  "selection": "High held-out-accuracy signs (not where/four), clips classified correctly with high confidence from their Stage 3 features, then kept only if real-time playback through tracking, segmentation and recognition gave exactly the right sign, and nothing else, in every run at 4-15 fps. One sign and one signer per clip.",
+  "clips": [
+    {
+      "file": "7027473793210652-HELLO.mp4",
+      "signer": "P47",
+      "label": "hello",
+      "gloss": "HELLO",
+      "test_confidence": 0.952,
+      "playback_check": {
+        "fps": [
+          4,
+          4,
+          5,
+          5,
+          6,
+          6,
+          7,
+          7,
+          10,
+          10,
+          15
+        ],
+        "correct": "11/11",
+        "confidence": [
+          0.85,
+          0.95
+        ]
+      }
+    },
+    {
+      "file": "583219774394824-PLEASE.mp4",
+      "signer": "P9",
+      "label": "please",
+      "gloss": "PLEASE",
+      "test_confidence": 0.906,
+      "playback_check": {
+        "fps": [
+          4,
+          4,
+          5,
+          5,
+          6,
+          6,
+          7,
+          7,
+          10,
+          10,
+          15
+        ],
+        "correct": "11/11",
+        "confidence": [
+          0.25,
+          0.91
+        ]
+      }
+    },
+    {
+      "file": "8858395254297784-FINISH.mp4",
+      "signer": "P18",
+      "label": "finish",
+      "gloss": "FINISH",
+      "test_confidence": 0.944,
+      "playback_check": {
+        "fps": [
+          4,
+          4,
+          5,
+          5,
+          6,
+          6,
+          7,
+          7,
+          10,
+          10,
+          15
+        ],
+        "correct": "11/11",
+        "confidence": [
+          0.59,
+          0.95
+        ]
+      }
+    },
+    {
+      "file": "6792376551714419-IMPORTANT.mp4",
+      "signer": "P35",
+      "label": "important",
+      "gloss": "IMPORTANT",
+      "test_confidence": 0.927,
+      "playback_check": {
+        "fps": [
+          4,
+          4,
+          5,
+          5,
+          6,
+          6,
+          7,
+          7,
+          10,
+          10,
+          15
+        ],
+        "correct": "11/11",
+        "confidence": [
+          0.66,
+          0.92
+        ]
+      }
+    },
+    {
+      "file": "8524004759358377-EASY.mp4",
+      "signer": "P15",
+      "label": "easy",
+      "gloss": "EASY",
+      "test_confidence": 0.938,
+      "playback_check": {
+        "fps": [
+          4,
+          4,
+          5,
+          5,
+          6,
+          6,
+          7,
+          7,
+          10,
+          10,
+          15
+        ],
+        "correct": "11/11",
+        "confidence": [
+          0.78,
+          0.94
+        ]
+      }
+    },
+    {
+      "file": "3741367212639053-LANGUAGE.mp4",
+      "signer": "P48",
+      "label": "language",
+      "gloss": "LANGUAGE",
+      "test_confidence": 0.939,
+      "playback_check": {
+        "fps": [
+          4,
+          4,
+          5,
+          5,
+          6,
+          6,
+          7,
+          7,
+          10,
+          10,
+          15
+        ],
+        "correct": "11/11",
+        "confidence": [
+          0.58,
+          0.96
+        ]
+      }
+    }
+  ]
+}

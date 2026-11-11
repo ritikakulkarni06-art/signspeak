@@ -15,9 +15,18 @@ data/processed/*
 models/*
 !**/.gitkeep
 
+# Demo Clip mode videos: ASL Citizen may not be redistributed. clips.json (names and
+# labels only) is versioned; fetch the videos with python -m demo.build_demo_clips.
+demo/clips/*
+!demo/clips/clips.json
+
 # Generated audio and run logs
 demo/tts_samples/
 logs/
+
+# Rehearsal logs are your own practice data: keep them locally, out of the repo.
+# Remove this line if you want them versioned.
+rehearsals/
 
 # Editor / OS
 .vscode/

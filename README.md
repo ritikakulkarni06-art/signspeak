@@ -159,12 +159,27 @@ are between signs that look similar (thank you → good, three → two, nine →
 `src/translation/` turns recognized gloss into a sentence: `translate_gloss(["hello", "name", "what"])` →
 "Hello! What's your name?".
 
-- **`ClaudeTranslator`** (the default when `ANTHROPIC_API_KEY` is set) prompts a pretrained Claude model with
-  the few-shot examples in [examples.py](src/translation/examples.py). Set the model with
-  `SIGNSPEAK_TRANSLATION_MODEL` (default `claude-opus-5` at low effort).
-- **`RuleBasedTranslator`** ([rules.py](src/translation/rules.py)) is an offline role-based grammar. It is
-  used without a key, and whenever the API fails (after an auth or billing error, for the rest of the
-  session). It never drops a signed word: sequences it can't parse come back as signed ("Nine language bad six.").
+- **`RuleBasedTranslator`** ([rules.py](src/translation/rules.py)) is an offline role-based grammar and
+  **what the live pipeline uses by default**: no network, no key, under 1 ms, and it never drops a signed
+  word (sequences it can't parse come back as signed, "Nine language bad six.").
+- **`ClaudeTranslator`** prompts a pretrained Claude model with the few-shot examples in
+  [examples.py](src/translation/examples.py). Set the model with `SIGNSPEAK_TRANSLATION_MODEL` (default
+  `claude-opus-5` at low effort). Enable it with `--translator claude` (or `auto`, which uses it when
+  `ANTHROPIC_API_KEY` is set). It falls back to the rules whenever a call fails, and for the rest of the
+  session after an auth or billing error. **Untested end to end:** our key returned 401 throughout, so every
+  sentence we ever measured came from the rules. Selecting it also costs about 4 s of startup (loading the
+  SDK and the first call) and puts a network round trip inside the latency budget: an empty round trip to
+  the API measured 311 ms on our network, before the model generates anything.
+
+  With a working key, check it in one command:
+
+  ```powershell
+  python -m demo.check_translation_api
+  ```
+
+  It verifies the key, runs every Stage 5 gloss sequence through the model, marks each sentence API or
+  FALLBACK (the unit tests stub the client, so they pass either way), and reports per-call latency and what
+  it would add end to end. Exit code 0 only if nothing fell back.
 - Any object with `translate(gloss) -> str`, such as a future trained seq2seq model, can be installed with
   `set_default_translator()`.
 
@@ -265,24 +280,68 @@ starts, with a per-stage breakdown. Speech plays on the laptop's speakers.
 ```powershell
 python -m demo.app                                                   # webcam; opens http://127.0.0.1:8000
 python -m demo.app --source data/raw/replay/utterances.mp4 --loop    # backup: replayed real signing
-python -m demo.app --translator rules                                # no network use at all
+python -m demo.app --source demo                                     # start in Demo Clip mode (no webcam needed)
+python -m demo.app --translator claude                               # opt in to the API (needs a valid key)
 ```
+
+### Demo Clip mode (guaranteed fallback)
+
+The **Run demo clip** control in the top bar plays a recorded sign instead of the webcam, at any time, and
+**Back to webcam** returns to live input. The page labels it **Demo Clip** (top bar and a badge on the video)
+the whole time it is on, so the audience knows it isn't live.
+
+Only the frame source changes. The clip is read in real time, frame by frame, like a camera (frames the
+loop is too slow for are dropped), and every frame goes through the same tracking, landmark overlay,
+segmentation, recognition, translation, speech synthesis and speaker output as the webcam. Nothing knows
+the clip's label; what you see and hear is what the models produced. A recording of someone else is shown
+unmirrored, where the webcam is shown like a mirror. If the webcam can't be opened or stops mid-demo, the
+app switches to Demo Clip mode by itself instead of stopping.
+
+The clips are ASL Citizen test-split videos ([demo/clips/clips.json](demo/clips/clips.json): file, signer,
+label), one sign and one signer each. The videos are gitignored (ASL Citizen may not be redistributed);
+fetch them once:
+
+```powershell
+python -m demo.build_demo_clips
+```
+
+They were picked to be reliable, so they show the pipeline at its best, not its typical accuracy (see
+[LIMITATIONS.md](LIMITATIONS.md)): signs with high held-out accuracy (not *where* or *four*), clips the
+recognizer gets right with high confidence, and only clips that came out as exactly the right sign when
+played through tracking, segmentation and recognition at every rate from 4 to 15 fps (the demo laptop runs 5–10).
 
 The page loads nothing from the internet, so it works offline. The server (`demo/app.py`, Flask) runs the
 pipeline on a background thread. It streams the video as MJPEG and pushes signs, sentences and timings over
 Server-Sent Events.
 
+### Rehearsing
+
+Practising with a record of what actually worked, rather than an impression of it:
+
+```powershell
+python -m src.pipeline.live      # terminal 1: sign
+python -m demo.rehearse          # terminal 2: log each attempt
+python -m demo.rehearse summary  # per-sign success rate, latency, repeat failures
+```
+
+You type the sign you performed and whether the audio sounded right. What was recognized, the confidence,
+the sentence, whether audio reached the speakers and the latency are read from the pipeline's own
+per-utterance log, so they are measured rather than remembered. Attempts where nothing was recognized are
+logged as misses, which is what stops the numbers flattering themselves. Rows go to `rehearsals/*.csv`.
+
 Demo-day tips:
 
-- **Keep the replay backup ready.** It needs no signer, lighting or camera, and runs the same pipeline.
+- **Keep Demo Clip mode ready.** It needs no signer, lighting or camera, runs the same pipeline, and is one
+  click away on the page. The longer replay video (`--source data/raw/replay/utterances.mp4`) is the other backup.
 - **Lower your hands at the end of each sentence.** That ends it immediately. Keeping them up means
   waiting for the 700 ms pause rule, the usual cause of a red (over 1.5 s) latency.
 - **Sign from the 50-word ASL vocabulary** (listed at the foot of the page), in good light, with both hands
   and your face in frame.
 - **Close other heavy apps.** The browser page shares the CPU with tracking: in software-rendered Edge it cut
   the capture loop from ~18–20 to ~14 fps.
-- **Unreliable network?** Use `--translator rules`. With the Claude API, a failed call gives up after 3 s and
-  speaks the offline translation.
+- **Don't turn on `--translator claude` for the demo.** The offline rules are the default for a reason: no
+  network, no key, no startup delay. With the API a failed call still costs up to 3 s before the offline
+  sentence is spoken.
 
 Run the tests:
 

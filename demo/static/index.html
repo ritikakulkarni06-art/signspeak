@@ -17,6 +17,11 @@
       </div>
     </div>
     <div class="meta">
+      <div class="source-controls" id="source-controls" hidden>
+        <select id="clip" aria-label="Demo clip"></select>
+        <button id="run-clip" type="button" class="primary">Run demo clip</button>
+        <button id="go-live" type="button" hidden>Back to webcam</button>
+      </div>
       <span class="tag" id="mode">Webcam</span>
       <span class="tag" id="fps">— fps</span>
       <span class="status" id="status" data-state="starting">
@@ -34,6 +39,7 @@
           <p id="overlay-text">Warming up the models…</p>
         </div>
         <span class="signing-badge" id="signing-badge">Signing</span>
+        <span class="source-badge" id="source-badge" hidden></span>
       </div>
       <div class="signs-row">
         <h2>Signs</h2>

@@ -22,6 +22,7 @@ const STATUS_TEXT = {
 };
 
 let status = "starting";
+let demoMode = false; // the frames come from a recorded clip, not live input
 let chipsSpoken = false; // the chips on screen belong to a sentence already spoken
 let ticker = null; // running latency counter
 let toastTimer = null;
@@ -68,7 +69,10 @@ function setStatus(next, message) {
 }
 
 function setInfo(info) {
-  if (info.mode) $("mode").textContent = info.mode;
+  if (info.live_mode) $("go-live").textContent = `Back to ${info.live_mode.toLowerCase()}`;
+  if (info.clips) showClipList(info.clips);
+  if (info.source) showSource(info.mode, info.source);
+  else if (info.mode) $("mode").textContent = info.mode;
   const parts = [];
   if (info.translator) parts.push(`Translation: ${info.translator}`);
   if (info.voice) parts.push(`Voice: ${info.voice}`);
@@ -79,6 +83,46 @@ function setInfo(info) {
     vocab.replaceChildren(...info.labels.map((label) => el("span", "", label)));
     $("vocab-count").textContent = `(${info.labels.length})`;
   }
+}
+
+// ---------------------------------------------------------------- source
+
+function showClipList(clips) {
+  $("source-controls").hidden = !clips.length;
+  $("clip").replaceChildren(
+    ...clips.map((clip) => {
+      const option = el("option", "", `${clip.label}${clip.signer ? ` · signer ${clip.signer}` : ""}`);
+      option.value = clip.file;
+      return option;
+    }),
+  );
+}
+
+function showSource(mode, source) {
+  demoMode = source.mode === "demo";
+  const tag = $("mode");
+  tag.textContent = mode;
+  tag.classList.toggle("demo", demoMode);
+  const badge = $("source-badge");
+  badge.hidden = !demoMode;
+  if (demoMode) {
+    const clip = source.clip;
+    badge.textContent = !clip ? "Demo Clip" : `Demo Clip · recorded${clip.signer ? `, signer ${clip.signer}` : ""}`;
+    if (clip) $("clip").value = clip.file;
+  }
+  $("go-live").hidden = !demoMode;
+  $("run-clip").textContent = demoMode && source.playing ? "Playing…" : "Run demo clip";
+  $("run-clip").disabled = demoMode && source.playing;
+  $("video").alt = demoMode
+    ? "Recorded demo clip with hand, body and face landmarks"
+    : "Webcam feed with hand, body and face landmarks";
+  if ($("glosses").querySelector(".placeholder")) showChips([]);
+}
+
+function postSource(body) {
+  fetch("/api/source", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+    .then((response) => response.ok || toast("Couldn't switch the video source."))
+    .catch(() => toast("Couldn't reach the demo server."));
 }
 
 // ---------------------------------------------------------------- signs
@@ -103,7 +147,7 @@ function addChip(sign) {
 function showChips(chips) {
   const box = $("glosses");
   if (!chips.length) {
-    box.replaceChildren(el("p", "placeholder", "Sign in front of the camera."));
+    box.replaceChildren(el("p", "placeholder", demoMode ? "Signs recognized in the clip appear here." : "Sign in front of the camera."));
     return;
   }
   box.replaceChildren();
@@ -249,6 +293,9 @@ function handle(event) {
       if (event.value && status === "listening") setStatus("signing");
       else if (!event.value && status === "signing") setStatus("listening");
       break;
+    case "source":
+      showSource(event.mode, event.source);
+      break;
     case "stats":
       $("fps").textContent = `${event.fps.toFixed(1)} fps`;
       break;
@@ -313,6 +360,8 @@ function startVideo() {
 // If the stream drops (e.g. the server restarts), reconnect it.
 $("video").addEventListener("error", () => setTimeout(startVideo, 1000));
 $("clear").addEventListener("click", () => fetch("/api/clear", { method: "POST" }));
+$("run-clip").addEventListener("click", () => postSource({ mode: "demo", clip: $("clip").value }));
+$("go-live").addEventListener("click", () => postSource({ mode: "live" }));
 if (document.readyState === "complete") startVideo();
 else window.addEventListener("load", startVideo);
 connect();

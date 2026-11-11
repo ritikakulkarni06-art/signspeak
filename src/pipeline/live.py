@@ -61,7 +61,11 @@ class PipelineConfig:
     # smoothing 0.6): measured -140 ms on detect with no extra split signs.
     segmenter: SegmenterConfig = field(default_factory=lambda: SegmenterConfig(pause_ms=120, smoothing=0.8))
     buffer: BufferConfig = field(default_factory=BufferConfig)
-    translator: str = "auto"  # "auto" (Claude if a key is set), "claude" or "rules"
+    # "rules" by default: offline, instant and always available. The Claude path
+    # is real but has never run end-to-end (our key returns 401), and an API call
+    # puts a network round trip inside the latency budget, so it is opt-in:
+    # "claude" forces it, "auto" uses it when ANTHROPIC_API_KEY is set.
+    translator: str = "rules"
     voice: str | None = None
     duration_s: float | None = None
     show_window: bool = True
@@ -136,9 +140,10 @@ class SpeechStage:
 
 
 class Pipeline:
-    def __init__(self, config: PipelineConfig, listener: PipelineListener | None = None):
+    def __init__(self, config: PipelineConfig, listener: PipelineListener | None = None, source=None):
         self.config = config
         self.listener = listener or PipelineListener()
+        self._source = source  # a ready frame source (read/close) in place of config.source, e.g. the demo's switchable one
         self._stop = threading.Event()
         self.translator_name = ""
         self.voice = ""
@@ -245,7 +250,7 @@ class Pipeline:
             raise RuntimeError("speech stage failed to start") from self._speech_error
 
         try:
-            source = open_source(self.config.source, self.config.source_size, self.config.loop_source)
+            source = self._source or open_source(self.config.source, self.config.source_size, self.config.loop_source)
         except Exception as error:
             tracker.close()
             self.listener.on_error(f"Couldn't open the video source: {error}")
@@ -394,7 +399,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--duration", type=float, help="stop after this many seconds")
     parser.add_argument("--no-window", action="store_true")
     parser.add_argument("--no-audio", action="store_true", help="render speech but don't play it")
-    parser.add_argument("--translator", choices=["auto", "claude", "rules"], default="auto")
+    parser.add_argument("--translator", choices=["rules", "claude", "auto"], default=PipelineConfig.translator,
+                        help="rules: offline grammar (default). claude: the API. auto: the API if a key is set")  # fmt: skip
     parser.add_argument("--voice", help="part of a voice name, e.g. Mark or Zira")
     parser.add_argument("--checkpoint", type=Path, default=PipelineConfig.checkpoint)
     parser.add_argument("--gap-ms", type=float, default=buffer_defaults.gap_ms, help="pause that ends a sentence")

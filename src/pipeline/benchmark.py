@@ -32,7 +32,7 @@ from src.capture.segmenter import SegmenterConfig, SignSegmenter
 from .live import ROOT, Pipeline, PipelineConfig, _fit_width
 
 REPLAY = ROOT / "data" / "raw" / "replay" / "utterances.mp4"
-WEBCAM_SIZE = (1280, 720)
+WEBCAM_SIZE = (640, 480)  # what open_webcam() now requests, so replays cost what the camera does
 BASE = PipelineConfig(source=str(REPLAY), source_size=WEBCAM_SIZE)  # the Stage 7 settings
 STEPS = [
     ("baseline (Stage 7)", {}),

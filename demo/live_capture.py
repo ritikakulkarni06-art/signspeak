@@ -69,7 +69,7 @@ def main() -> None:
 
 def _draw_hud(image: np.ndarray, features: np.ndarray, fps: float, latency_ms: float, mirror: bool) -> None:
     """Show stats read back from the feature vector itself, so the HUD checks the vector, not just the tracker."""
-    scale = image.shape[1] / 1280
+    scale = max(image.shape[1] / 1280, 0.5)  # readable at 640-wide webcam frames too
     line_height = int(28 * scale)
     font_scale = 0.6 * scale
     panel_rows = 4

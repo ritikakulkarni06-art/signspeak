@@ -3,7 +3,11 @@
 Run from the project root: python -m unittest discover -s tests
 """
 
+import contextlib
+import io
+import os
 import unittest
+import unittest.mock
 from types import SimpleNamespace
 
 from src.translation import ClaudeTranslator, RuleBasedTranslator, set_default_translator, translate_gloss
@@ -153,6 +157,46 @@ class TranslateGlossTests(unittest.TestCase):
     def test_empty_input(self):
         set_default_translator(RuleBasedTranslator())
         self.assertEqual(translate_gloss([]), "")
+
+
+class ApiCheckScriptTests(unittest.TestCase):
+    """demo/check_translation_api.py only ever runs when someone has a working key,
+    so its success path is covered here with a stub instead."""
+
+    def _run(self, client):
+        from demo import check_translation_api as check
+
+        original = check.build_client
+        check.build_client = lambda: client
+        out = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out):
+                code = check.main()
+        finally:
+            check.build_client = original
+        return code, out.getvalue()
+
+    def test_reports_success_when_every_sequence_comes_from_the_api(self):
+        with unittest.mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-ant-api03-" + "x" * 95}):
+            code, output = self._run(StubClient(text="A sentence."))
+        self.assertEqual(code, 0, output)
+        self.assertIn("All 12 sequences came from the API.", output)
+        self.assertIn("Effect on end-to-end latency", output)
+
+    def test_reports_failure_when_the_key_is_rejected(self):
+        class AuthError(Exception):
+            status_code = 401
+
+        with unittest.mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-ant-api03-" + "x" * 95}):
+            code, output = self._run(StubClient(error=AuthError("API key is invalid.")))
+        self.assertEqual(code, 1)
+        self.assertIn("REJECTED", output)
+
+    def test_flags_a_missing_key_without_calling_the_api(self):
+        with unittest.mock.patch.dict(os.environ, {}, clear=True):
+            code, output = self._run(StubClient())
+        self.assertEqual(code, 2)
+        self.assertIn("is not set", output)
 
 
 if __name__ == "__main__":

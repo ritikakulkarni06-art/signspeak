@@ -87,7 +87,7 @@ def _report(index: int, segment: SignSegment) -> None:
 
 def _draw_status(image: np.ndarray, segmenter: SignSegmenter, count: int, recent: SignSegment | None) -> None:
     cfg = segmenter.config
-    scale = image.shape[1] / 1280
+    scale = max(image.shape[1] / 1280, 0.5)  # readable at 640-wide webcam frames too
     margin, thickness, font_scale = int(12 * scale), max(1, int(1.5 * scale)), 0.7 * scale
     panel = image[: int(96 * scale), :]
     panel[:] = (panel * 0.35).astype(np.uint8)

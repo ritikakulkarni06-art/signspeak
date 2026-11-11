@@ -94,6 +94,44 @@ class DemoAppTests(unittest.TestCase):
         response.close()
         self.assertTrue(chunk.startswith(b"--frame"))
 
+    def test_demo_clip_mode_switches_source_and_is_labelled(self):
+        clips = [{"file": "a-PLEASE.mp4", "label": "please", "signer": "P47"}]
+        state = DemoState("Webcam", "Webcam", clips)
+        requests = []
+
+        class Source:
+            def play_clip(self, path, clip):
+                requests.append((path.name, clip["label"]))
+
+            def use_live(self):
+                requests.append("live")
+
+        client = create_app(state, Source()).test_client()
+        self.assertEqual(client.post("/api/source", json={"mode": "demo", "clip": "a-PLEASE.mp4"}).status_code, 200)
+        self.assertEqual(client.post("/api/source", json={"mode": "live"}).status_code, 200)
+        for payload in (["live"], "live", True):
+            self.assertEqual(client.post("/api/source", json=payload).status_code, 400)
+        self.assertEqual(requests, [("a-PLEASE.mp4", "please"), "live"])
+        # only clips from the manifest: never an arbitrary path
+        self.assertEqual(client.post("/api/source", json={"mode": "demo", "clip": "../../secret.mp4"}).status_code, 400)
+
+        state.on_source({"mode": "demo", "clip": clips[0], "playing": True, "notice": None})
+        snapshot = state.state()
+        self.assertEqual(snapshot["mode"], "Demo Clip")
+        self.assertEqual(snapshot["source"]["clip"]["signer"], "P47")
+        state.on_source({"mode": "live", "clip": None, "playing": False, "notice": None})
+        self.assertEqual(state.state()["mode"], "Webcam")
+
+    def test_demo_clip_frames_are_not_mirrored(self):
+        frame = np.zeros((48, 64, 3), np.uint8)
+        frame[:, :32] = 255  # bright on the left
+        self.state.on_source({"mode": "demo", "clip": None, "playing": True, "notice": None})
+        self.state.on_frame(frame, FrameLandmarks((64, 48)), signing=False)
+        chunk = next(self.state.mjpeg())
+        jpeg = chunk.split(b"\r\n\r\n", 1)[1].rstrip(b"\r\n")
+        image = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_GRAYSCALE)
+        self.assertGreater(image[:, :16].mean(), image[:, -16:].mean())
+
     def test_clear_empties_history(self):
         self.state.on_sign(_sign(), kept=True)
         self.assertEqual(self.client.post("/api/clear").status_code, 200)

@@ -13,7 +13,7 @@ import numpy as np
 
 from src.pipeline import STAGES, BufferConfig, GlossBuffer, SignEvent, UtteranceTrace
 from src.pipeline.live import SpeechStage, sign_duration_s
-from src.pipeline.sources import VideoSource
+from src.pipeline.sources import SwitchableSource, VideoSource
 from src.pipeline.trace import now_ms
 from src.tts import Audio
 
@@ -139,6 +139,103 @@ class VideoSourceTests(unittest.TestCase):
         source.close()
         self.assertLess(frames, 15)
         self.assertGreater(source.dropped, 15)
+
+
+class FakeCamera:
+    def __init__(self, frames=None, value=200):
+        self.frames, self.value, self.closed = frames, value, False
+
+    def read(self):
+        if self.frames is not None:
+            if self.frames == 0:
+                return None
+            self.frames -= 1
+        return np.full((48, 64, 3), self.value, np.uint8)
+
+    def close(self):
+        self.closed = True
+
+
+class SwitchableSourceTests(unittest.TestCase):
+    """Demo Clip mode: the clip replaces the camera as the frame source, and
+    every one of its frames is still handed to the pipeline."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.clip = Path(self.tmp.name) / "clip.avi"
+        writer = cv2.VideoWriter(str(self.clip), cv2.VideoWriter_fourcc(*"MJPG"), 30.0, (64, 48))
+        for i in range(15):  # half a second, each frame a different shade
+            writer.write(np.full((48, 64, 3), 10 + i * 8, np.uint8))
+        writer.release()
+        self.changes = []
+        self.camera = FakeCamera()
+        SwitchableSource.LEAD_IN_S, SwitchableSource.HOLD_S = 0.1, 0.1
+
+    def tearDown(self):
+        SwitchableSource.LEAD_IN_S, SwitchableSource.HOLD_S = 0.5, 2.0
+        self.tmp.cleanup()
+
+    def _source(self, **kwargs):
+        return SwitchableSource(lambda: self.camera, on_change=self.changes.append, **kwargs)
+
+    def test_clip_plays_in_real_time_then_holds_its_last_frame(self):
+        source = self._source()
+        self.assertEqual(source.read().mean(), 200)  # the camera
+        source.play_clip(self.clip, {"file": "clip.avi", "label": "please"})
+        started, shades = time.monotonic(), []
+        while time.monotonic() - started < 1.2:
+            shades.append(round(source.read().mean()))
+        self.assertTrue(self.camera.closed)  # the camera is released while the clip plays
+        clip_shades = [s for s in shades if s != shades[0]]
+        self.assertEqual(clip_shades, sorted(clip_shades))  # in order, never repeated backwards
+        # held on the last frame delivered afterwards (a late reader may miss the very last one, as live)
+        self.assertEqual(shades[-1], clip_shades[-1])
+        self.assertGreaterEqual(shades[-1], 10 + 12 * 8)
+        self.assertEqual([(c["mode"], c["playing"]) for c in self.changes], [("live", False), ("demo", True), ("demo", False)])
+        self.assertEqual(self.changes[1]["clip"]["label"], "please")
+        source.close()
+
+    def test_back_to_live(self):
+        source = self._source()
+        source.read()
+        source.play_clip(self.clip)
+        source.read()
+        self.camera = FakeCamera(value=99)
+        source.use_live()
+        self.assertEqual(source.read().mean(), 99)
+        self.assertEqual(self.changes[-1]["mode"], "live")
+        source.close()
+
+    def test_missing_camera_falls_back_to_demo_mode_instead_of_stopping(self):
+        def no_camera():
+            raise RuntimeError("no webcam")
+
+        source = SwitchableSource(no_camera, on_change=self.changes.append)
+        self.assertIsNotNone(source.read())  # a still frame, not the end of the stream
+        self.assertEqual(self.changes[-1]["mode"], "demo")
+        self.assertIn("no webcam", self.changes[-1]["notice"])
+
+    def test_camera_that_stops_mid_session_falls_back_too(self):
+        self.camera = FakeCamera(frames=2)
+        source = self._source()
+        frames = [source.read() for _ in range(4)]
+        self.assertTrue(all(frame is not None for frame in frames))
+        self.assertEqual(self.changes[-1]["mode"], "demo")
+
+    def test_every_frame_has_one_size_whatever_the_source(self):
+        # MediaPipe's tracker crashes if the frame size changes mid-stream.
+        self.camera.read = lambda: np.full((720, 1280, 3), 50, np.uint8)
+        source = self._source(size=(64, 48))
+        self.assertEqual(source.read().shape, (48, 64, 3))  # 16:9 letterboxed into 4:3
+        source.play_clip(self.clip)
+        self.assertEqual(source.read().shape, (48, 64, 3))
+        source.close()
+
+    def test_start_in_demo_mode_without_opening_the_camera(self):
+        source = self._source(start_live=False)
+        self.assertEqual(source.read().shape, (480, 640, 3))
+        self.assertFalse(self.changes)
+        self.assertEqual(source.info["mode"], "demo")
 
 
 if __name__ == "__main__":
